@@ -18,7 +18,7 @@ import oss2
 OSS_ENDPOINT = 'http://oss-cn-hangzhou.aliyuncs.com'
 OSS_KEY = '<Your AccessKeyID>'
 OSS_SECRET = '<Your AccessKeySecret>'
-OSS_AUTH = oss2.Auth('<Your AccessKeyID>', '<Your AccessKeySecret>')
+OSS_AUTH = oss2.Auth(OSS_KEY, OSS_SECRET)
 BUCKET_NAME = '<your bucket name>'
 OBJECT_KEY = '<your object key>'
 
