@@ -45,6 +45,9 @@ class Session(object):
                 "Send request, method: {0}, url: {1}, params: {2}, headers: {3}, timeout: {4}, proxy: {5}".format(
                     req.method, req.url, req.params, req.headers, timeout, req.proxy))
 
+            # 1. 当设置 progress_callback 或开启 crc 校验时，data 类型会经 oss make_progress_adapter / make_crc_adapter 转换
+            # 成对应的 adapter object，并且在 read 时进行 process_callback 与 crc 校验计算
+            # 2. requests 支持 file-like-object 的读取，而 aiohttp 不支持，因此需要提前将 data 读取出来
             req_data = req.data.read() if hasattr(req.data, 'read') else req.data
             resp = await self.aio_session.request(req.method, req.url,
                                                   data=req_data,
