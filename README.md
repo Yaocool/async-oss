@@ -1,13 +1,15 @@
-# OSS 异步客户端
-基于 aiohttp 3.7.4 与 阿里云 OSS 2.15.0 的 OSS 异步客户端
+# OSS 异步客户端 (OSS async client)
+基于 aiohttp 3.7.4 与 阿里云 OSS 2.15.0 的 OSS 异步客户端。</br>
+Based on aiohttp==3.7.4 & oss==2.15.0.
 
-# 安装
-虚拟环境中执行
+# 安装 (Installation)
+clone 到本地后使用 Pyinstaller 打包成 wheel 包，在虚拟环境中执行以下命令即可。</br>
+After clone to local, use Pyinstaller to package the wheel package and execute the following command in the virtual environment.
 ```shell script
 $ pip install async-oss
 ```
 
-# 使用示例
+# 使用示例 (Example)
 
 ```python
 import async_oss
