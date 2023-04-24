@@ -45,3 +45,8 @@ if __name__ == '__main__':
 
 # ChangeLog
 * init 1.0.0
+* fix `http.py/do_request` method stream read  [Jul 29, 2022]
+
+
+# Discussions
+Any questions can be raised in Discussions, I will answer them from time to time~
