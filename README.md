@@ -1,6 +1,8 @@
-# OSS 异步客户端 (OSS async client)
-基于 aiohttp 3.7.4 与 阿里云 OSS 2.15.0 的 OSS 异步客户端。</br>
-Based on aiohttp==3.7.4 & oss==2.15.0.
+# 阿里云 OSS 异步客户端 (Aliyun OSS asynchronous client)
+基于 aiohttp 与 阿里云 OSS 的 OSS 异步客户端。</br>
+已在 QPS ≈ 500 的生产环境中验证使用并平稳落地，可放心使用。</br>
+Based on aiohttp==3.7.4 & oss==2.15.0.</br>
+It has been verified and used in the production environment with QPS ≈ 500, so you can use it with confidence.</br>
 
 # 安装 (Installation)
 ## PyPI (recommend)
