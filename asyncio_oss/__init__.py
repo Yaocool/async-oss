@@ -1,7 +1,7 @@
 from oss2.auth import Auth
 
-from async_oss.api import Service, Bucket
-from async_oss.iterators import (
+from asyncio_oss.api import Service, Bucket
+from asyncio_oss.iterators import (
     BucketIterator,
     ObjectIterator,
     MultipartUploadIterator,

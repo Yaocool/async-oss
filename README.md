@@ -12,10 +12,9 @@ $ pip install async-oss
 # 使用示例 (Example)
 
 ```python
-import async_oss
+import asyncio_oss
 import asyncio
 import oss2
-
 
 OSS_ENDPOINT = 'http://oss-cn-hangzhou.aliyuncs.com'
 OSS_KEY = '<Your AccessKeyID>'
@@ -26,7 +25,7 @@ OBJECT_KEY = '<your object key>'
 
 
 async def main():
-    async with async_oss.Bucket(OSS_AUTH, OSS_ENDPOINT, BUCKET_NAME) as bucket:
+    async with asyncio_oss.Bucket(OSS_AUTH, OSS_ENDPOINT, BUCKET_NAME) as bucket:
         # Upload
         await bucket.put_object(OBJECT_KEY, b'your bytes data')
 

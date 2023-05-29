@@ -1,7 +1,7 @@
 import pytest
 
-from async_oss.api import Bucket
-from async_oss.test import (OSS_ENDPOINT, OSS_AUTH, BUCKET_NAME, OBJECT_KEY, OBJECT_KEY_PREFIX, LOCAL_TEST_FILE)
+from asyncio_oss.api import Bucket
+from asyncio_oss.test import (OSS_ENDPOINT, OSS_AUTH, BUCKET_NAME, OBJECT_KEY, OBJECT_KEY_PREFIX, LOCAL_TEST_FILE)
 
 
 class TestAsyncOssAPI:

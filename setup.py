@@ -2,7 +2,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='async-oss',
+    name='asyncio-oss',
     version='1.0.0',
     description='An asynchronous OSS library.',
     author='Ozzy',
