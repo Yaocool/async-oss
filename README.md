@@ -3,10 +3,18 @@
 Based on aiohttp==3.7.4 & oss==2.15.0.
 
 # 安装 (Installation)
-clone 到本地后使用 Pyinstaller 打包成 wheel 包，在虚拟环境中执行以下命令即可。</br>
-After clone to local, use Pyinstaller to package the wheel package and execute the following command in the virtual environment.
+## PyPI (recommend)
 ```shell script
-$ pip install async-oss
+$ pip install asyncio-oss
+```
+
+## 本地编译 (Local compilation)
+git clone 到本地后执行如下命令即可。</br>
+After clone to local, execute the following commands in the virtual environment.
+```shell script
+$ python setup.py bdist_wheel
+
+$ pip install ./dist/asyncio_oss-1.0.0-py3-none-any.whl
 ```
 
 # 使用示例 (Example)
