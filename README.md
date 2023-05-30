@@ -58,7 +58,7 @@ if __name__ == '__main__':
 * init 1.0.0
 * [Jul 29, 2022] fix `http.py/do_request` method stream read bug
 * [May 29, 2023] add test cases and supported `asyncio-oss` package in PyPI
-
+* [May 30, 2023] bump version to 1.0.1 for PyPI package description updating
 
 # Discussions
 Any questions can be raised in Discussions, I will answer them from time to time~
