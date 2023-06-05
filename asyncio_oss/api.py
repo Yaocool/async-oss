@@ -200,12 +200,12 @@ logger = logging.getLogger(__name__)
 
 class _Base(object):
     def __init__(self, auth, endpoint, is_cname, session, connect_timeout,
-                 app_name='', enable_crc=True, proxy=None, loop=None):
+                 app_name='', enable_crc=True, proxy=None):
         self.auth = auth
         self.endpoint = _normalize_endpoint(endpoint.strip())
         if utils.is_valid_endpoint(self.endpoint) is not True:
             raise ClientError('The endpoint you has specified is not valid, endpoint: {0}'.format(endpoint))
-        self.session = session or http.Session(loop=loop)
+        self.session = session or http.Session()
         self.timeout = defaults.get(connect_timeout, defaults.connect_timeout)
         self.app_name = app_name
         self.enable_crc = enable_crc

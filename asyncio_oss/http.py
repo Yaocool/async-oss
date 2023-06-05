@@ -7,7 +7,6 @@ oss2.http
 这个模块包含了HTTP Adapters。尽管OSS Python SDK内部使用requests库进行HTTP通信，但是对使用者是透明的。
 该模块中的 `Session` 、 `Request` 、`Response` 对requests的对应的类做了简单的封装。
 """
-import asyncio
 import logging
 import platform
 
@@ -28,16 +27,15 @@ logger = logging.getLogger(__name__)
 class Session(object):
     """属于同一个Session的请求共享一组连接池，如有可能也会重用HTTP连接。"""
 
-    def __init__(self, loop=None):
-        self._loop = loop or asyncio.get_event_loop()
+    def __init__(self):
         self.resp = None
+        self._aio_session = None
 
-        psize = defaults.connection_pool_size
-        connector = aiohttp.TCPConnector(limit=psize, loop=self._loop)
-        self.aio_session = aiohttp.ClientSession(
-            connector=connector,
-            loop=self._loop,
-            skip_auto_headers=['User-Agent', 'Content-Type'])
+    async def _create_session(self):
+        if self._aio_session is None:
+            pool_size = defaults.connection_pool_size
+            connector = aiohttp.TCPConnector(limit=pool_size)
+            self._aio_session = aiohttp.ClientSession(connector=connector)
 
     async def do_request(self, req, timeout):
         try:
@@ -45,37 +43,38 @@ class Session(object):
                 "Send request, method: {0}, url: {1}, params: {2}, headers: {3}, timeout: {4}, proxy: {5}".format(
                     req.method, req.url, req.params, req.headers, timeout, req.proxy))
 
-            # 1. 当设置 progress_callback 或开启 crc 校验时，data 类型会经 oss make_progress_adapter / make_crc_adapter 转换
-            # 成对应的 adapter object，并且在 read 时进行 process_callback 与 crc 校验计算
-            # 2. requests 支持 file-like-object 的读取，而 aiohttp 不支持，因此需要提前将 data 读取出来
+            await self._create_session()
+            # 1. When setting progress_callback or enabling crc verification, the data type will be converted to the
+            # corresponding adapter object by oss make_progress_adapter / make_crc_adapter, and the process_callback
+            # and crc verification calculation will be performed when read
+            # 2. requests supports the reading of file-like-objects, while aiohttp does not, so you need to read the
+            # data in advance
             req_data = req.data.read() if hasattr(req.data, 'read') else req.data
-            resp = await self.aio_session.request(req.method, req.url,
-                                                  data=req_data,
-                                                  params=req.params,
-                                                  headers=req.headers,
-                                                  timeout=timeout,
-                                                  proxy=req.proxy)
+            resp = await self._aio_session.request(
+                req.method,
+                req.url,
+                data=req_data,
+                params=req.params,
+                headers=req.headers,
+                timeout=timeout,
+                proxy=req.proxy
+            )
             self.resp = resp
             return Response(resp)
         except IOError as e:
+            # catch read IO error
             raise RequestError(e)
+        except aiohttp.ClientError:
+            # catch all aiohttp client errors
+            await self._aio_session.close()
 
     async def __aenter__(self):
-        await self.aio_session.__aenter__()
+        await self._create_session()
+        await self._aio_session.__aenter__()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        self._release_resp()
-        await self.aio_session.__aexit__(exc_type, exc_val, exc_tb)
-
-    async def close(self):
-        self._release_resp()
-        await self.aio_session.close()
-
-    def _release_resp(self):
-        if self.resp:
-            self.resp.release()
-            self.resp.close()
+        await self._aio_session.__aexit__(exc_type, exc_val, exc_tb)
 
 
 class Request(object):
@@ -154,10 +153,10 @@ class Response(object):
         return self.response.content
 
 
-# requests对于具有fileno()方法的file object，会用fileno()的返回值作为Content-Length。
-# 这对于已经读取了部分内容，或执行了seek()的file object是不正确的。
+# requests 对于具有 fileno() 方法的 file object，会用 fileno() 的返回值作为 Content-Length。
+# 这对于已经读取了部分内容，或执行了seek() 的 file object是不正确的。
 #
-# _convert_request_body()对于支持seek()和tell() file object，确保是从
+# _convert_request_body() 对于支持 seek() 和 tell() file object，确保是从
 # 当前位置读取，且只读取当前位置到文件结束的内容。
 def _convert_request_body(data):
     data = to_bytes(data)
