@@ -55,10 +55,17 @@ if __name__ == '__main__':
 ```
 
 # ChangeLogs
-* init 1.0.0
-* [Jul 29, 2022] fix `http.py/do_request` method stream read bug
-* [May 29, 2023] add test cases and supported `asyncio-oss` package in PyPI
-* [May 30, 2023] bump version to 1.0.1 for PyPI package description updating
+* [Jul 29, 2022 - 1.0.0]
+  * fix `http.py/do_request` method stream read bug
+* [May 29, 2023]
+  * add test cases and supported `asyncio-oss` package in PyPI
+* [May 30, 2023 - 1.0.1]
+  * bump version to 1.0.1 for PyPI package description updating
+* [June 24, 2023 - 1.0.2]
+  * remove unused fields add params in `asyncio_oss/http.py api.py` files
+  * fix `asyncio_oss/iterators.py/_BaseIterator/__aiter__` method bug
+  * add `list_buckets` test case in `tests/service_test.py` for `Service` class
+  * bump version to 1.0.2
 
 # Discussions
 Any questions can be raised in Discussions, I will answer them from time to time~
