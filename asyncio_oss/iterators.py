@@ -7,10 +7,11 @@ oss2.iterators
 该模块包含了一些易于使用的迭代器，可以用来遍历Bucket、文件、分片上传等。
 """
 
-from oss2.models import MultipartUploadInfo, SimplifiedObjectInfo
-from oss2.exceptions import ServerError
+from .exceptions import ServerError
+from . import http
 
-from oss2 import defaults, http
+from oss2 import defaults
+from oss2.models import MultipartUploadInfo, SimplifiedObjectInfo
 
 
 class _BaseIterator(object):
@@ -39,6 +40,9 @@ class _BaseIterator(object):
 
             await self.fetch_with_retry()
 
+    async def next(self):
+        return await self.__anext__()
+
     async def fetch_with_retry(self):
         for i in range(self.max_retries):
             try:
@@ -63,7 +67,6 @@ class BucketIterator(_BaseIterator):
     :param marker: 分页符。只列举Bucket名字典序在此之后的Bucket
     :param max_keys: 每次调用 `list_buckets` 时的max_keys参数。注意迭代器返回的数目可能会大于该值。
     """
-
     def __init__(self, service, prefix='', marker='', max_keys=100, max_retries=None):
         super(BucketIterator, self).__init__(marker, max_retries)
         self.service = service
@@ -94,7 +97,6 @@ class ObjectIterator(_BaseIterator):
     :param headers: HTTP头部
     :type headers: 可以是dict，建议是oss2.CaseInsensitiveDict
     """
-
     def __init__(self, bucket, prefix='', delimiter='', marker='', max_keys=100, max_retries=None, headers=None):
         super(ObjectIterator, self).__init__(marker, max_retries)
 
@@ -162,7 +164,6 @@ class ObjectIteratorV2(_BaseIterator):
 
         return result.is_truncated, result.next_continuation_token
 
-
 class MultipartUploadIterator(_BaseIterator):
     """遍历Bucket里未完成的分片上传。
 
@@ -179,7 +180,6 @@ class MultipartUploadIterator(_BaseIterator):
     :param headers: HTTP头部
     :type headers: 可以是dict，建议是oss2.CaseInsensitiveDict
     """
-
     def __init__(self, bucket,
                  prefix='', delimiter='', key_marker='', upload_id_marker='',
                  max_uploads=1000, max_retries=None, headers=None):
@@ -219,7 +219,6 @@ class ObjectUploadIterator(_BaseIterator):
     :param headers: HTTP头部
     :type headers: 可以是dict，建议是oss2.CaseInsensitiveDict
     """
-
     def __init__(self, bucket, key, max_uploads=1000, max_retries=None, headers=None):
         super(ObjectUploadIterator, self).__init__('', max_retries)
         self.bucket = bucket
@@ -261,7 +260,6 @@ class PartIterator(_BaseIterator):
     :param headers: HTTP头部
     :type headers: 可以是dict，建议是oss2.CaseInsensitiveDict
     """
-
     def __init__(self, bucket, key, upload_id,
                  marker='0', max_parts=1000, max_retries=None, headers=None):
         super(PartIterator, self).__init__(marker, max_retries)
@@ -292,7 +290,6 @@ class LiveChannelIterator(_BaseIterator):
     :param marker: 分页符
     :param max_keys: 每次调用 `list_live_channel` 时的max_keys参数。注意迭代器返回的数目可能会大于该值。
     """
-
     def __init__(self, bucket, prefix='', marker='', max_keys=100, max_retries=None):
         super(LiveChannelIterator, self).__init__(marker, max_retries)
 

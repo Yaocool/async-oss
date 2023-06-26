@@ -182,42 +182,50 @@ datetime.date之间相互转换。如 ::
 """
 import time
 import shutil
+
+from . import http, exceptions
+# GetObjectResult needs to calculate crc, but the data stream is asynchronous and cannot be read directly,
+# so the GetObjectResult object in asyncio-oss is used to satisfy the crc check calculation.
+from .models import GetObjectResult as AsyncGetObjectResult
+
+from oss2 import xml_utils, select_params, defaults, models, utils
+from oss2.compat import urlquote, urlparse, to_unicode, to_string
+from oss2.models import *
+from oss2.headers import *
+from oss2.select_params import *
 import logging
 
-from oss2.headers import *
-from oss2 import models
-from oss2.models import *
-from oss2.select_params import *
-from oss2 import xml_utils, defaults
-from oss2.compat import urlparse, to_unicode
-
-from . import http
-from . import exceptions
-from .models import GetObjectResult as AsyncGetObjectResult
 
 logger = logging.getLogger(__name__)
 
 
 class _Base(object):
     def __init__(self, auth, endpoint, is_cname, session, connect_timeout,
-                 app_name='', enable_crc=True, proxy=None):
+                 app_name='', enable_crc=True, proxies=None, region=None, cloudbox_id=None):
         self.auth = auth
         self.endpoint = _normalize_endpoint(endpoint.strip())
         if utils.is_valid_endpoint(self.endpoint) is not True:
-            raise ClientError('The endpoint you has specified is not valid, endpoint: {0}'.format(endpoint))
+            raise exceptions.ClientError('The endpoint you has specified is not valid, endpoint: {0}'.format(endpoint))
         self.session = session or http.Session()
         self.timeout = defaults.get(connect_timeout, defaults.connect_timeout)
         self.app_name = app_name
         self.enable_crc = enable_crc
-        self.proxy = proxy
-
+        self.proxies = proxies
+        self.region = region
+        self.product = 'oss'
+        self.cloudbox_id = cloudbox_id
+        if self.cloudbox_id is not None:
+            self.product = 'oss-cloudbox'
         self._make_url = _UrlMaker(self.endpoint, is_cname)
 
     async def _do(self, method, bucket_name, key, **kwargs):
         key = to_string(key)
         req = http.Request(method, self._make_url(bucket_name, key),
                            app_name=self.app_name,
-                           proxy=self.proxy,
+                           proxies=self.proxies,
+                           region=self.region,
+                           product=self.product,
+                           cloudbox_id=self.cloudbox_id,
                            **kwargs)
         self.auth._sign_request(req, bucket_name, key)
 
@@ -238,7 +246,7 @@ class _Base(object):
         return resp
 
     async def _do_url(self, method, sign_url, **kwargs):
-        req = http.Request(method, sign_url, app_name=self.app_name, proxy=self.proxy, **kwargs)
+        req = http.Request(method, sign_url, app_name=self.app_name, proxies=self.proxies, **kwargs)
         resp = await self.session.do_request(req, timeout=self.timeout)
         if resp.status // 100 != 2:
             e = await exceptions.make_exception(resp)
@@ -298,24 +306,29 @@ class Service(_Base):
     """
 
     QOS_INFO = 'qosInfo'
+    REGIONS = 'regions'
 
     def __init__(self, auth, endpoint,
                  session=None,
                  connect_timeout=None,
                  app_name='',
-                 proxy=None):
-        logger.debug("Init oss service, endpoint: {0}, connect_timeout: {1}, app_name: {2}, proxy: {3}".format(
-            endpoint, connect_timeout, app_name, proxy))
+                 proxies=None,
+                 region=None,
+                 cloudbox_id=None):
+        logger.debug("Init oss service, endpoint: {0}, connect_timeout: {1}, app_name: {2}, proxies: {3}".format(
+            endpoint, connect_timeout, app_name, proxies))
         super(Service, self).__init__(auth, endpoint, False, session, connect_timeout,
-                                      app_name=app_name, proxy=proxy)
+                                      app_name=app_name, proxies=proxies,
+                                      region=region, cloudbox_id=cloudbox_id)
 
-    async def list_buckets(self, prefix='', marker='', max_keys=100, params=None):
+    async def list_buckets(self, prefix='', marker='', max_keys=100, params=None, headers=None):
         """根据前缀罗列用户的Bucket。
 
         :param str prefix: 只罗列Bucket名为该前缀的Bucket，空串表示罗列所有的Bucket
         :param str marker: 分页标志。首次调用传空串，后续使用返回值中的next_marker
         :param int max_keys: 每次调用最多返回的Bucket数目
         :param dict params: list操作参数，传入'tag-key','tag-value'对结果进行过滤
+        :param headers: 用户指定的HTTP头部。可以指定Content-Type、Content-MD5、x-oss-meta-开头的头部等。可以是dict，建议是oss2.CaseInsensitiveDict
 
         :return: 罗列的结果
         :rtype: oss2.models.ListBucketsResult
@@ -327,13 +340,12 @@ class Service(_Base):
         listParam['marker'] = marker
         listParam['max-keys'] = str(max_keys)
 
-        if params is not None:
-            if 'tag-key' in params:
-                listParam['tag-key'] = params['tag-key']
-            if 'tag-value' in params:
-                listParam['tag-value'] = params['tag-value']
+        headers = http.CaseInsensitiveDict(headers)
 
-        resp = await self._do('GET', '', '', params=listParam)
+        if params is not None:
+            listParam.update(params)
+
+        resp = await self._do('GET', '', '', params=listParam, headers=headers)
         logger.debug("List buckets done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
         return await self._parse_result(resp, xml_utils.parse_list_buckets, ListBucketsResult)
 
@@ -345,6 +357,19 @@ class Service(_Base):
         resp = await self._do('GET', '', '', params={Service.QOS_INFO: ''})
         logger.debug("get use qos, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
         return await self._parse_result(resp, xml_utils.parse_get_qos_info, GetUserQosInfoResult)
+
+    async def describe_regions(self, regions=''):
+        """查询所有支持地域或者指定地域对应的Endpoint信息，包括外网Endpoint、内网Endpoint和传输加速Endpoint。
+
+        :param str regions : 地域。
+        :return: :class:`DescribeRegionsResult <oss2.models.DescribeRegionsResult>`
+        """
+        logger.debug("Start to describe regions")
+
+        resp = await self._do('GET', '', '', params={Service.REGIONS: regions})
+        logger.debug("Describe regions done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+
+        return await self._parse_result(resp, xml_utils.parse_describe_regions, DescribeRegionsResult)
 
 
 class Bucket(_Base):
@@ -412,6 +437,14 @@ class Bucket(_Base):
     REPLICATION_LOCATION = 'replicationLocation'
     REPLICATION_PROGRESS = 'replicationProgress'
     TRANSFER_ACCELERATION = 'transferAcceleration'
+    CNAME = 'cname'
+    META_QUERY = 'metaQuery'
+    ACCESS_MONITOR = 'accessmonitor'
+    RESOURCE_GROUP = 'resourceGroup'
+    STYLE = 'style'
+    STYLE_NAME = 'styleName'
+    ASYNC_PROCESS = 'x-oss-async-process'
+    CALLBACK = 'callback'
 
     def __init__(self, auth, endpoint, bucket_name,
                  is_cname=False,
@@ -419,12 +452,16 @@ class Bucket(_Base):
                  connect_timeout=None,
                  app_name='',
                  enable_crc=True,
-                 proxy=None):
+                 proxies=None,
+                 region=None,
+                 cloudbox_id=None):
         logger.debug(
-            "Init Bucket: {0}, endpoint: {1}, isCname: {2}, connect_timeout: {3}, app_name: {4}, enabled_crc: {5}"
-            ", proxy: {6}".format(bucket_name, endpoint, is_cname, connect_timeout, app_name, enable_crc, proxy))
+            "Init Bucket: {0}, endpoint: {1}, isCname: {2}, connect_timeout: {3}, app_name: {4}, enabled_crc: {5}, "
+            "region: {6}, proxies: {7}".format(bucket_name, endpoint, is_cname, connect_timeout, app_name, enable_crc,
+                                               region, proxies))
         super(Bucket, self).__init__(auth, endpoint, is_cname, session, connect_timeout,
-                                     app_name=app_name, enable_crc=enable_crc, proxy=proxy)
+                                     app_name=app_name, enable_crc=enable_crc, proxies=proxies,
+                                     region=region, cloudbox_id=cloudbox_id)
 
         self.bucket_name = bucket_name.strip()
         if utils.is_valid_bucket_name(self.bucket_name) is not True:
@@ -454,13 +491,18 @@ class Bucket(_Base):
 
         :return: 签名URL。
         """
+        if key is None or len(key.strip()) <= 0:
+            raise exceptions.ClientError("The key is invalid, please check it.")
         key = to_string(key)
         logger.debug(
             "Start to sign_url, method: {0}, bucket: {1}, key: {2}, expires: {3}, headers: {4}, params: {5}, slash_safe: {6}".format(
                 method, self.bucket_name, to_string(key), expires, headers, params, slash_safe))
         req = http.Request(method, self._make_url(self.bucket_name, key, slash_safe),
                            headers=headers,
-                           params=params)
+                           params=params,
+                           region=self.region,
+                           product=self.product,
+                           cloudbox_id=self.cloudbox_id)
         return self.auth._sign_url(req, self.bucket_name, key, expires)
 
     async def sign_rtmp_url(self, channel_name, playlist_name, expires):
@@ -500,7 +542,7 @@ class Bucket(_Base):
         logger.debug(
             "Start to List objects, bucket: {0}, prefix: {1}, delimiter: {2}, marker: {3}, max-keys: {4}".format(
                 self.bucket_name, to_string(prefix), delimiter, to_string(marker), max_keys))
-        resp = await self.__do_object('GET', '',
+        resp = await self.__do_bucket('GET',
                                       params={'prefix': prefix,
                                               'delimiter': delimiter,
                                               'marker': marker,
@@ -532,7 +574,7 @@ class Bucket(_Base):
             "start-after: {4}, fetch-owner: {5}, encoding_type: {6}, max-keys: {7}".format(
                 self.bucket_name, to_string(prefix), delimiter, continuation_token, start_after, fetch_owner,
                 encoding_type, max_keys))
-        resp = await self.__do_object('GET', '',
+        resp = await self.__do_bucket('GET',
                                       params={'list-type': '2',
                                               'prefix': prefix,
                                               'delimiter': delimiter,
@@ -745,6 +787,8 @@ class Bucket(_Base):
         resp = await self.__do_object('GET', key, headers=headers, params=params)
         logger.debug("Get object done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
 
+        # GetObjectResult needs to calculate crc, but the data stream is asynchronous and cannot be read directly,
+        # so the GetObjectResult object in asyncio-oss is used to satisfy the crc check calculation.
         return AsyncGetObjectResult(resp, progress_callback, self.enable_crc)
 
     async def select_object(self, key, sql,
@@ -876,6 +920,8 @@ class Bucket(_Base):
         logger.debug("Start to get object with url, bucket: {0}, sign_url: {1}, range: {2}, headers: {3}".format(
             self.bucket_name, sign_url, range_string, headers))
         resp = await self._do_url('GET', sign_url, headers=headers)
+        # GetObjectResult needs to calculate crc, but the data stream is asynchronous and cannot be read directly,
+        # so the GetObjectResult object in asyncio-oss is used to satisfy the crc check calculation.
         return AsyncGetObjectResult(resp, progress_callback, self.enable_crc)
 
     async def get_object_with_url_to_file(self, sign_url,
@@ -967,7 +1013,7 @@ class Bucket(_Base):
         resp = await self.__do_object('HEAD', key, headers=headers, params=params)
 
         logger.debug("Head object done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
-        return HeadObjectResult(resp)
+        return await self._parse_result(resp, xml_utils.parse_dummy_result, HeadObjectResult)
 
     async def create_select_object_meta(self, key, select_meta_params=None, headers=None):
         """获取或创建CSV,JSON LINES 文件元信息。如果元信息存在，返回之；不然则创建后返回之
@@ -1033,7 +1079,7 @@ class Bucket(_Base):
         if Bucket.OBJECTMETA not in params:
             params[Bucket.OBJECTMETA] = ''
 
-        resp = await self.__do_object('GET', key, params=params, headers=headers)
+        resp = await self.__do_object('HEAD', key, params=params, headers=headers)
         logger.debug("Get object metadata done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
         return GetObjectMetaResult(resp)
 
@@ -1051,11 +1097,18 @@ class Bucket(_Base):
         # 304 (NotModified)；不存在，则会返回NoSuchKey。get_object会受回源的影响，如果配置会404回源，get_object会判断错误。
         #
         # 目前的实现是通过get_object_meta判断文件是否存在。
+        # get_object_meta 为200时，不会返回响应体，所以该接口把GET方法修改为HEAD 方式
+        # 同时, 对于head 请求，服务端会通过x-oss-err 返回 错误响应信息,
+        # 考虑到兼容之前的行为，增加exceptions.NotFound 异常 当作NoSuchKey
 
         logger.debug("Start to check if object exists, bucket: {0}, key: {1}".format(self.bucket_name, to_string(key)))
         try:
             await self.get_object_meta(key, headers=headers)
         except exceptions.NoSuchKey:
+            return False
+        except exceptions.NoSuchBucket:
+            raise
+        except exceptions.NotFound:
             return False
         except:
             raise
@@ -1248,7 +1301,7 @@ class Bucket(_Base):
         headers = http.CaseInsensitiveDict(headers)
         headers['Content-MD5'] = utils.content_md5(data)
 
-        resp = await self.__do_object('POST', '',
+        resp = await self.__do_bucket('POST',
                                       data=data,
                                       params={'delete': '', 'encoding-type': 'url'},
                                       headers=headers)
@@ -1275,7 +1328,7 @@ class Bucket(_Base):
         headers = http.CaseInsensitiveDict(headers)
         headers['Content-MD5'] = utils.content_md5(data)
 
-        resp = await self.__do_object('POST', '',
+        resp = await self.__do_bucket('POST',
                                       data=data,
                                       params={'delete': '', 'encoding-type': 'url'},
                                       headers=headers)
@@ -1360,8 +1413,11 @@ class Bucket(_Base):
         :return: :class:`PutObjectResult <oss2.models.PutObjectResult>`
         """
         headers = http.CaseInsensitiveDict(headers)
-        parts = sorted(parts, key=lambda p: p.part_number)
-        data = xml_utils.to_complete_upload_request(parts)
+
+        data = None
+        if parts is not None:
+            parts = sorted(parts, key=lambda p: p.part_number)
+            data = xml_utils.to_complete_upload_request(parts)
 
         logger.debug("Start to complete multipart upload, bucket: {0}, key: {1}, upload_id: {2}, parts: {3}".format(
             self.bucket_name, to_string(key), upload_id, data))
@@ -1375,7 +1431,7 @@ class Bucket(_Base):
 
         result = PutObjectResult(resp)
 
-        if self.enable_crc:
+        if self.enable_crc and parts is not None:
             object_crc = utils.calc_obj_crc_from_parts(parts)
             utils.check_crc('multipart upload', object_crc, result.crc, result.request_id)
 
@@ -1430,7 +1486,7 @@ class Bucket(_Base):
 
         headers = http.CaseInsensitiveDict(headers)
 
-        resp = await self.__do_object('GET', '',
+        resp = await self.__do_bucket('GET',
                                       params={'uploads': '',
                                               'prefix': prefix,
                                               'delimiter': delimiter,
@@ -1567,7 +1623,7 @@ class Bucket(_Base):
         logger.debug("Get symlink done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
         return GetSymlinkResult(resp)
 
-    async def create_bucket(self, permission=None, input=None):
+    async def create_bucket(self, permission=None, input=None, headers=None):
         """创建新的Bucket。
 
         :param str permission: 指定Bucket的ACL。可以是oss2.BUCKET_ACL_PRIVATE（推荐、缺省）、oss2.BUCKET_ACL_PUBLIC_READ或是
@@ -1575,10 +1631,9 @@ class Bucket(_Base):
 
         :param input: :class:`BucketCreateConfig <oss2.models.BucketCreateConfig>` object
         """
+        headers = http.CaseInsensitiveDict(headers)
         if permission:
-            headers = {OSS_CANNED_ACL: permission}
-        else:
-            headers = None
+            headers[OSS_CANNED_ACL] = permission
 
         data = self.__convert_data(BucketCreateConfig, xml_utils.to_put_bucket_config, input)
         logger.debug("Start to create bucket, bucket: {0}, permission: {1}, config: {2}".format(self.bucket_name,
@@ -2090,14 +2145,20 @@ class Bucket(_Base):
         logger.debug("Get bucket tagging done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
         return await self._parse_result(resp, xml_utils.parse_get_tagging, GetTaggingResult)
 
-    async def delete_bucket_tagging(self):
+    async def delete_bucket_tagging(self, params=None):
         """
         :return: :class:`RequestResult <oss2.models.RequestResult>`
         """
         logger.debug("Start to delete bucket tagging, bucket: {0}".format(
             self.bucket_name))
 
-        resp = await self.__do_bucket('DELETE', params={Bucket.TAGGING: ''})
+        if params is None:
+            params = dict()
+
+        if Bucket.TAGGING not in params:
+            params[Bucket.TAGGING] = ''
+
+        resp = await self.__do_bucket('DELETE', params=params)
 
         logger.debug("Delete bucket tagging done, req_id: {0}, status_code: {1}".format(
             resp.request_id, resp.status))
@@ -2466,8 +2527,7 @@ class Bucket(_Base):
         data = xml_utils.to_put_bucket_replication(rule)
         headers = http.CaseInsensitiveDict()
         headers['Content-MD5'] = utils.content_md5(data)
-        resp = await self.__do_bucket('POST', data=data, params={Bucket.REPLICATION: '', 'comp': 'add'},
-                                      headers=headers)
+        resp = await self.__do_bucket('POST', data=data, params={Bucket.REPLICATION: '', 'comp': 'add'}, headers=headers)
         logger.debug("Put bucket replication done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
 
         return RequestResult(resp)
@@ -2560,7 +2620,7 @@ class Bucket(_Base):
     async def get_bucket_transfer_acceleration(self):
         """获取目标存储空间（Bucket）的传输加速配置
 
-        :return: :class:`GetBucketReplicationResult <oss2.models.GetBucketReplicationResult>`
+        :return: :class:`GetBucketTransferAccelerationResult <oss2.models.GetBucketTransferAccelerationResult>`
         """
         logger.debug("Start to get bucket transfer acceleration: {0}".format(self.bucket_name))
         resp = await self.__do_bucket('GET', params={Bucket.TRANSFER_ACCELERATION: ''})
@@ -2570,7 +2630,263 @@ class Bucket(_Base):
         return await self._parse_result(resp, xml_utils.parse_get_bucket_transfer_acceleration_result,
                                         GetBucketTransferAccelerationResult)
 
+    async def create_bucket_cname_token(self, domain):
+        """创建域名所有权验证所需的CnameToken。
+
+        :param str domain : 绑定的Cname名称。
+        :return: :class:`CreateBucketCnameTokenResult <oss2.models.CreateBucketCnameTokenResult>`
+        """
+        logger.debug("Start to create bucket cname token, bucket: {0}.".format(self.bucket_name))
+        data = xml_utils.to_bucket_cname_configuration(domain)
+        resp = await self.__do_bucket('POST', data=data, params={Bucket.CNAME: '', Bucket.COMP: 'token'})
+        logger.debug("bucket cname token done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+        return await self._parse_result(resp, xml_utils.parse_create_bucket_cname_token, CreateBucketCnameTokenResult)
+
+    async def get_bucket_cname_token(self, domain):
+        """获取已创建的CnameToken。
+
+        :param str domain : 绑定的Cname名称。
+        :return: :class:`GetBucketCnameTokenResult <oss2.models.GetBucketCnameTokenResult>`
+        """
+        logger.debug("Start to get bucket cname: {0}".format(self.bucket_name))
+        resp = await self.__do_bucket('GET', params={Bucket.CNAME: domain, Bucket.COMP: 'token'})
+        logger.debug("Get bucket cname done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+        return await self._parse_result(resp, xml_utils.parse_get_bucket_cname_token, GetBucketCnameTokenResult)
+
+    async def put_bucket_cname(self, input):
+        """为某个存储空间（Bucket）绑定自定义域名。
+
+        :param input: PutBucketCnameRequest类型，包含了证书和自定义域名信息
+        :return: :class:`RequestResult <oss2.models.RequestResult>`
+        """
+        logger.debug("Start to add bucket cname, bucket: {0}.".format(self.bucket_name))
+        data = xml_utils.to_bucket_cname_configuration(input.domain, input.cert)
+        resp = await self.__do_bucket('POST', data=data, params={Bucket.CNAME: '', Bucket.COMP: 'add'})
+        logger.debug("bucket cname done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+        return RequestResult(resp)
+
+    async def list_bucket_cname(self):
+        """查询某个存储空间（Bucket）下绑定的所有Cname列表。
+
+        :return: :class:`ListBucketCnameResult <oss2.models.ListBucketCnameResult>`
+        """
+        logger.debug("Start to do query list bucket cname: {0}".format(self.bucket_name))
+
+        resp = await self.__do_bucket('GET', params={Bucket.CNAME: ''})
+        logger.debug("query list bucket cname done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+        return await self._parse_result(resp, xml_utils.parse_list_bucket_cname, ListBucketCnameResult)
+
+    async def delete_bucket_cname(self, domain):
+        """删除某个存储空间（Bucket）已绑定的Cname
+
+        :param str domain : 绑定的Cname名称。
+        :return: :class:`RequestResult <oss2.models.RequestResult>`
+        """
+        logger.debug("Start to delete bucket cname: {0}".format(self.bucket_name))
+        data = xml_utils.to_bucket_cname_configuration(domain)
+        resp = await self.__do_bucket('POST', data=data, params={Bucket.CNAME: '', Bucket.COMP: 'delete'})
+        logger.debug("delete bucket cname done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+        return RequestResult(resp)
+
+    async def open_bucket_meta_query(self):
+        """为存储空间（Bucket）开启元数据管理功能
+
+        :return: :class:`RequestResult <oss2.models.RequestResult>`
+        """
+        logger.debug("Start to bucket meta query, bucket: {0}.".format(self.bucket_name))
+        resp = await self.__do_bucket('POST', params={Bucket.META_QUERY: '', 'comp': 'add'})
+        logger.debug("bucket meta query done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+        return RequestResult(resp)
+
+    async def get_bucket_meta_query_status(self):
+        """获取指定存储空间（Bucket）的元数据索引库信息。
+
+        :return: :class:`GetBucketMetaQueryResult <oss2.models.GetBucketMetaQueryResult>`
+        """
+        logger.debug("Start to get bucket meta query: {0}".format(self.bucket_name))
+        resp = await self.__do_bucket('GET', params={Bucket.META_QUERY: ''})
+        logger.debug("Get bucket meta query done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+        return await self._parse_result(resp, xml_utils.parse_get_bucket_meta_query_result, GetBucketMetaQueryResult)
+
+    async def do_bucket_meta_query(self, do_meta_query_request):
+        """查询满足指定条件的文件（Object），并按照指定字段和排序方式列出文件信息。
+
+        :param do_meta_query_request :class:`MetaQuery <oss2.models.MetaQuery>`
+        :return: :class:`DoBucketMetaQueryResult <oss2.models.DoBucketMetaQueryResult>`
+        """
+        logger.debug("Start to do bucket meta query: {0}".format(self.bucket_name))
+
+        data = self.__convert_data(MetaQuery, xml_utils.to_do_bucket_meta_query_request, do_meta_query_request)
+        resp = await self.__do_bucket('POST', data=data, params={Bucket.META_QUERY: '', Bucket.COMP: 'query'})
+        logger.debug("do bucket meta query done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+        return await self._parse_result(resp, xml_utils.parse_do_bucket_meta_query_result, DoBucketMetaQueryResult)
+
+    async def close_bucket_meta_query(self):
+        """关闭存储空间（Bucket）的元数据管理功能
+
+        :return: :class:`RequestResult <oss2.models.RequestResult>`
+        """
+        logger.debug("Start to close bucket meta query: {0}".format(self.bucket_name))
+        resp = await self.__do_bucket('POST', params={Bucket.META_QUERY: '', Bucket.COMP: 'delete'})
+        logger.debug("bucket meta query done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+        return RequestResult(resp)
+
+    async def put_bucket_access_monitor(self, status):
+        """更新 Bucket 访问跟踪状态。
+
+        :param str status : bucket访问跟踪的开启状态
+        :return: :class:`RequestResult <oss2.models.RequestResult>`
+        """
+        logger.debug("Start to put bucket access monitor, bucket: {0}.".format(self.bucket_name))
+        data = xml_utils.to_put_bucket_access_monitor(status)
+        resp = await self.__do_bucket('PUT', data=data, params={Bucket.ACCESS_MONITOR: ''})
+        logger.debug("bucket access monitor done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+        return RequestResult(resp)
+
+    async def get_bucket_access_monitor(self):
+        """获取当前Bucket的访问跟踪的状态。
+
+        :return: :class:`GetBucketAccessMonitorResult <oss2.models.GetBucketAccessMonitorResult>`
+        """
+        logger.debug("Start to get bucket access monitor: {0}".format(self.bucket_name))
+
+        resp = await self.__do_bucket('GET', params={Bucket.ACCESS_MONITOR: ''})
+        logger.debug("query list bucket cname done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+        return await self._parse_result(resp, xml_utils.parse_get_bucket_access_monitor_result, GetBucketAccessMonitorResult)
+
+    async def get_bucket_resource_group(self):
+        """查询存储空间（Bucket）的资源组ID。
+
+        :return: :class:`GetBucketResourceGroupResult <oss2.models.GetBucketResourceGroupResult>`
+        """
+        logger.debug("Start to get bucket resource group: {0}".format(self.bucket_name))
+        resp = self.__do_bucket('GET', params={Bucket.RESOURCE_GROUP: ''})
+        logger.debug(
+            "Get bucket resource group done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+
+        return await self._parse_result(resp, xml_utils.parse_get_bucket_resource_group_result, GetBucketResourceGroupResult)
+
+    async def put_bucket_resource_group(self, resourceGroupId):
+        """为存储空间（Bucket）配置所属资源组。
+
+        :param str resourceGroupId : Bucket所属的资源组ID。
+        :return: :class:`RequestResult <oss2.models.RequestResult>`
+        """
+        logger.debug("Start to put bucket resource group, bucket: {0}.".format(self.bucket_name))
+        data = xml_utils.to_put_bucket_resource_group(resourceGroupId)
+        resp = await self.__do_bucket('PUT', data=data, params={Bucket.RESOURCE_GROUP: ''})
+        logger.debug("bucket resource group done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+        return RequestResult(resp)
+
+    async def put_bucket_style(self, styleName, content):
+        """新增图片样式。
+
+        :param str styleName : 样式名称。
+        :param str content : 图片样式内容，图片样式可以包含一个或多个图片处理操作。
+        :return: :class:`RequestResult <oss2.models.RequestResult>`
+        """
+        logger.debug("Start to put bucket style, bucket: {0}.".format(self.bucket_name))
+
+        data = xml_utils.to_put_bucket_style(content)
+        resp = await self.__do_bucket('PUT', data=data, params={Bucket.STYLE: '', Bucket.STYLE_NAME: styleName})
+        logger.debug("bucket style done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+        return RequestResult(resp)
+
+    async def get_bucket_style(self, styleName):
+        """查询某个Bucket下指定的图片样式信息。
+
+        :param str styleName : 样式名称。
+        :return: :class:`GetBucketStyleResult <oss2.models.GetBucketStyleResult>`
+        """
+        logger.debug("Start to get bucket style: {0}".format(self.bucket_name))
+
+        resp = await self.__do_bucket('GET', params={Bucket.STYLE: '', Bucket.STYLE_NAME: styleName})
+        logger.debug("Get bucket style done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+
+        return await self._parse_result(resp, xml_utils.parse_get_bucket_style_result, GetBucketStyleResult)
+
+    async def list_bucket_style(self):
+        """查询某个Bucket下已创建的所有图片样式。
+
+        :return: :class:`ListBucketStyleResult <oss2.models.ListBucketStyleResult>`
+        """
+        logger.debug("Start to list bucket style: {0}".format(self.bucket_name))
+
+        resp = await self.__do_bucket('GET', params={Bucket.STYLE: ''})
+        logger.debug("query list bucket style done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+        return await self._parse_result(resp, xml_utils.parse_list_bucket_style, ListBucketStyleResult)
+
+    async def delete_bucket_style(self, styleName):
+        """删除某个Bucket下指定的图片样式。
+
+        :param str styleName : 样式名称。
+        :return: :class:`RequestResult <oss2.models.RequestResult>`
+        """
+        logger.debug("Start to delete bucket style: {0}".format(self.bucket_name))
+
+        resp = await self.__do_bucket('DELETE', params={Bucket.STYLE: '', Bucket.STYLE_NAME: styleName})
+        logger.debug("delete bucket style done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+        return RequestResult(resp)
+
+    async def async_process_object(self, key, process, headers=None):
+        """异步处理多媒体接口。
+
+        :param str key: 处理的多媒体的对象名称
+        :param str process: 处理的字符串，例如"video/convert,f_mp4,vcodec_h265,s_1920x1080,vb_2000000,fps_30,acodec_aac,ab_100000,sn_1|sys/saveas,o_dGVzdC5qcGc,b_dGVzdA"
+
+        :param headers: HTTP头部
+        :type headers: 可以是dict，建议是oss2.CaseInsensitiveDict
+        """
+
+        headers = http.CaseInsensitiveDict(headers)
+
+        logger.debug("Start to async process object, bucket: {0}, key: {1}, process: {2}".format(
+            self.bucket_name, to_string(key), process))
+        process_data = "%s=%s" % (Bucket.ASYNC_PROCESS, process)
+        resp = await self.__do_object('POST', key, params={Bucket.ASYNC_PROCESS: ''}, headers=headers, data=process_data)
+        logger.debug("Async process object done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+        return await self._parse_result(resp, xml_utils.parse_async_process_object, AsyncProcessObject)
+
+    async def put_bucket_callback_policy(self, callbackPolicy):
+        """设置bucket回调策略
+
+        :param str callbackPolicy: 回调策略
+        """
+        logger.debug("Start to put bucket callback policy, bucket: {0}, callback policy: {1}".format(self.bucket_name,
+                                                                                                     callbackPolicy))
+        data = xml_utils.to_do_bucket_callback_policy_request(callbackPolicy)
+        resp = await self.__do_bucket('PUT', data=data, params={Bucket.POLICY: '', Bucket.COMP: Bucket.CALLBACK})
+        logger.debug(
+            "Put bucket callback policy done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+
+        return RequestResult(resp)
+
+    async def get_bucket_callback_policy(self):
+        """获取bucket回调策略
+        :return: :class:`GetBucketPolicyResult <oss2.models.CallbackPolicyResult>`
+        """
+
+        logger.debug("Start to get bucket callback policy, bucket: {0}".format(self.bucket_name))
+        resp = await self.__do_bucket('GET', params={Bucket.POLICY: '', Bucket.COMP: Bucket.CALLBACK})
+        logger.debug(
+            "Get bucket callback policy done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+        return await self._parse_result(resp, xml_utils.parse_callback_policy_result, CallbackPolicyResult)
+
+    async def delete_bucket_callback_policy(self):
+        """删除bucket回调策略
+        :return: :class:`RequestResult <oss2.models.RequestResult>`
+        """
+        logger.debug("Start to delete bucket callback policy, bucket: {0}".format(self.bucket_name))
+        resp = await self.__do_bucket('DELETE', params={Bucket.POLICY: '', Bucket.COMP: Bucket.CALLBACK})
+        logger.debug(
+            "Delete bucket callback policy done, req_id: {0}, status_code: {1}".format(resp.request_id, resp.status))
+        return RequestResult(resp)
+
     async def __do_object(self, method, key, **kwargs):
+        if not self.bucket_name:
+            raise exceptions.ClientError("Bucket name should not be null or empty.")
+        if not key:
+            raise exceptions.ClientError("key should not be null or empty.")
         return await self._do(method, self.bucket_name, key, **kwargs)
 
     async def __do_bucket(self, method, **kwargs):

@@ -10,12 +10,13 @@ oss2.http
 import logging
 import platform
 
+from .exceptions import RequestError
+
 import aiohttp
 from requests.structures import CaseInsensitiveDict
 
 from oss2 import __version__, defaults
 from oss2.compat import to_bytes
-from oss2.exceptions import RequestError
 from oss2.utils import file_object_remaining_bytes, SizedFileAdapter
 
 USER_AGENT = 'aliyun-sdk-python/{0}({1}/{2}/{3};{4})'.format(
@@ -40,8 +41,8 @@ class Session(object):
     async def do_request(self, req, timeout):
         try:
             logger.debug(
-                "Send request, method: {0}, url: {1}, params: {2}, headers: {3}, timeout: {4}, proxy: {5}".format(
-                    req.method, req.url, req.params, req.headers, timeout, req.proxy))
+                "Send request, method: {0}, url: {1}, params: {2}, headers: {3}, timeout: {4}, proxies: {5}".format(
+                    req.method, req.url, req.params, req.headers, timeout, req.proxies))
 
             await self._create_session()
             # 1. When setting progress_callback or enabling crc verification, the data type will be converted to the
@@ -57,16 +58,17 @@ class Session(object):
                 params=req.params,
                 headers=req.headers,
                 timeout=timeout,
-                proxy=req.proxy
+                proxy=req.proxies
             )
             self.resp = resp
             return Response(resp)
         except IOError as e:
             # catch read IO error
             raise RequestError(e)
-        except aiohttp.ClientError:
+        except aiohttp.ClientError as e:
             # catch all aiohttp client errors
             await self._aio_session.close()
+            raise RequestError(e)
 
     async def __aenter__(self):
         await self._create_session()
@@ -83,12 +85,18 @@ class Request(object):
                  params=None,
                  headers=None,
                  app_name='',
-                 proxy=None):
+                 proxies=None,
+                 region=None,
+                 product=None,
+                 cloudbox_id=None):
         self.method = method
         self.url = url
         self.data = _convert_request_body(data)
         self.params = params or {}
-        self.proxy = proxy
+        self.proxies = proxies
+        self.region = region
+        self.product = product
+        self.cloudbox_id = cloudbox_id
 
         if not isinstance(headers, CaseInsensitiveDict):
             self.headers = CaseInsensitiveDict(headers)
@@ -144,10 +152,13 @@ class Response(object):
             content = b''.join(content_list)
 
             self.__all_read = True
-            # logger.debug("Get response body, req-id: {0}, content: {1}", self.request_id, content)
             return content
         else:
-            return await self.response.content.read(amt)
+            try:
+                return await self.response.content.read(amt)
+            except StopAsyncIteration:
+                self.__all_read = True
+                return b''
 
     def __aiter__(self):
         return self.response.content
