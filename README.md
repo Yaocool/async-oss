@@ -16,6 +16,8 @@ $ pip install ./dist/asyncio_oss-1.0.0-py3-none-any.whl
 
 # Example
 ```python
+import logging
+
 import asyncio_oss
 import asyncio
 import oss2
@@ -50,6 +52,9 @@ async def main():
 
 
 if __name__ == '__main__':
+    # open global log
+    log_file_path = "example_logfile.log"
+    asyncio_oss.set_file_logger(log_file_path, 'asyncio_oss', logging.DEBUG)
     loop = asyncio.get_event_loop()
     loop.run_until_complete(main())
 ```
@@ -66,6 +71,11 @@ if __name__ == '__main__':
   * fix `asyncio_oss/iterators.py/_BaseIterator/__aiter__` method bug
   * add `list_buckets` test case in `tests/service_test.py` for `Service` class
   * bump version to 1.0.2
+* [June 27, 2023 - 1.1.0]
+  * remove unused objects and methods in `asyncio_oss/models.py` and `asyncio_oss/utils.py` to streamline sdk package
+  * support oss2==2.18.0 newest apis
+  * support global log
+  * bump version to 1.1.0
 
-# Discussions
-Any questions can be raised in Discussions, I will answer them from time to time~
+# Discussions Or Issues
+Any questions can be raised in `Discussions` or `Issues`, I will answer them from time to time.
