@@ -11,10 +11,11 @@ $ pip install asyncio-oss
 ```shell script
 $ git clone git@github.com:Yaocool/async-oss.git
 $ python setup.py bdist_wheel
-$ pip install ./dist/asyncio_oss-1.0.0-py3-none-any.whl
+$ pip install ./dist/asyncio_oss-1.1.1-py3-none-any.whl
 ```
 
-# Example
+# Examples
+For more examples, please refer to the [test](./asyncio_oss/test) directory.
 ```python
 import logging
 
@@ -62,20 +63,33 @@ if __name__ == '__main__':
 # ChangeLogs
 * [Jul 29, 2022 - 1.0.0]
   * fix `http.py/do_request` method stream read bug
+
+
 * [May 29, 2023]
   * add test cases and supported `asyncio-oss` package in PyPI
+
+
 * [May 30, 2023 - 1.0.1]
   * bump version to 1.0.1 for PyPI package description updating
+
+
 * [June 24, 2023 - 1.0.2]
   * remove unused fields add params in `asyncio_oss/http.py api.py` files
   * fix `asyncio_oss/iterators.py/_BaseIterator/__aiter__` method bug
   * add `list_buckets` test case in `tests/service_test.py` for `Service` class
   * bump version to 1.0.2
+
+
 * [June 27, 2023 - 1.1.0]
   * remove unused objects and methods in `asyncio_oss/models.py` and `asyncio_oss/utils.py` to streamline sdk package
   * support oss2==2.18.0 newest apis
   * support global log
   * bump version to 1.1.0
+
+
+* [June 28, 2023 - 1.1.1]
+  * fix the bug of wrong signature of `put_object_tagging` interface caused by default `Content-Type` of aiohttp
+  * bump version to 1.1.1
 
 # Discussions Or Issues
 Any questions can be raised in `Discussions` or `Issues`, I will answer them from time to time.
