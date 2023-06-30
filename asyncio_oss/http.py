@@ -103,9 +103,9 @@ class Request(object):
         else:
             self.headers = headers
 
-        # tell requests not to add 'Accept-Encoding: gzip, deflate' by default
-        if 'Accept-Encoding' not in self.headers:
-            self.headers['Accept-Encoding'] = ''
+        # tell aiohttp not to add 'Content-Type: application/octet-stream' by default
+        if 'Content-Type' not in self.headers:
+            self.headers['Content-Type'] = ''
 
         if 'User-Agent' not in self.headers:
             if app_name:
