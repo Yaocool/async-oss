@@ -11,7 +11,7 @@ $ pip install asyncio-oss
 ```shell script
 $ git clone git@github.com:Yaocool/async-oss.git
 $ python setup.py bdist_wheel
-$ pip install ./dist/asyncio_oss-1.1.1-py3-none-any.whl
+$ pip install ./dist/asyncio_oss-*-py3-none-any.whl
 ```
 
 # Examples
