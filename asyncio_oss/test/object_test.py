@@ -1,7 +1,13 @@
+import os
+
 import pytest
 
+from oss2 import determine_part_size, SizedFileAdapter
+from oss2.models import PartInfo
+
 from asyncio_oss.api import Bucket
-from asyncio_oss.test import (OSS_ENDPOINT, OSS_AUTH, BUCKET_NAME, OBJECT_KEY, OBJECT_KEY_PREFIX, LOCAL_TEST_FILE)
+from asyncio_oss.test import (OSS_ENDPOINT, OSS_AUTH, BUCKET_NAME, OBJECT_KEY, OBJECT_KEY_PREFIX, LOCAL_TEST_FILE,
+                              LOCAL_TEST_BIG_FILE, BIG_OBJECT_KEY)
 
 
 class TestAsyncOssAPI:
@@ -132,3 +138,35 @@ class TestAsyncOssAPI:
         result = await api.list_objects(prefix=OBJECT_KEY_PREFIX)
         assert result.status == 200
         assert OBJECT_KEY not in [obj.key for obj in result.object_list]
+
+    @pytest.mark.asyncio
+    async def test_upload_big_file(self, api):
+        # get big file total size
+        total_size = os.path.getsize(LOCAL_TEST_BIG_FILE)
+
+        # determine part size
+        part_size = determine_part_size(total_size)
+
+        # init multipart upload
+        upload_id = (await api.init_multipart_upload(BIG_OBJECT_KEY)).upload_id
+
+        # upload parts
+        parts = []
+        with open(LOCAL_TEST_BIG_FILE, 'rb') as f:
+            part_number = 1
+            offset = 0
+            while offset < total_size:
+                num_to_upload = min(part_size, total_size - offset)
+                result = await api.upload_part(BIG_OBJECT_KEY, upload_id, part_number,
+                                               SizedFileAdapter(f, num_to_upload))
+                parts.append(PartInfo(part_number, result.etag))
+
+                offset += num_to_upload
+                part_number += 1
+
+        # complete multipart upload
+        await api.complete_multipart_upload(BIG_OBJECT_KEY, upload_id, parts)
+
+        # Assert
+        with open(LOCAL_TEST_BIG_FILE, 'rb') as f:
+            assert await (await api.get_object(BIG_OBJECT_KEY)).read() == f.read()
