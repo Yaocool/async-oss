@@ -18,5 +18,5 @@ setup(
     author_email='ozzycharon@gmail.com',
     license='MIT',
     install_requires=['aiohttp', 'oss2'],
-    packages=find_packages(),
+    packages=find_packages(exclude=['asyncio_oss.test']),
 )
