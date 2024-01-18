@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 import pytest
@@ -13,7 +14,9 @@ from asyncio_oss.test import (OSS_ENDPOINT, OSS_AUTH, BUCKET_NAME, OBJECT_KEY, O
 class TestAsyncOssAPI:
     @pytest.fixture
     def api(self):
-        return Bucket(OSS_AUTH, OSS_ENDPOINT, BUCKET_NAME)
+        bucket = Bucket(OSS_AUTH, OSS_ENDPOINT, BUCKET_NAME)
+        yield bucket
+        asyncio.run(bucket.close())
 
     @pytest.mark.asyncio
     async def test_put_object(self, api):
