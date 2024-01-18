@@ -180,6 +180,7 @@ datetime.date之间相互转换。如 ::
     - OverwriteIfExists: true|false. true表示重新获得csv meta，并覆盖原有的meta。一般情况下不需要使用
 
 """
+import os
 import time
 import shutil
 
@@ -277,10 +278,7 @@ class _Base(object):
             self.session.resp.release()
         await self.session.__aexit__(exc_type, exc_val, exc_tb)
 
-    async def close(self):
-        await self.session.close()
-
-
+    
 class Service(_Base):
     """用于Service操作的类，如罗列用户所有的Bucket。
 
@@ -883,15 +881,43 @@ class Bucket(_Base):
                                            process=process, params=params)
 
             if result.content_length is None:
-                shutil.copyfileobj(result, f)
+                await self.copyfileobj(result, f)
             else:
-                utils.copyfileobj_and_verify(result, f, result.content_length, request_id=result.request_id)
+                await self.copyfileobj_and_verify(result, f, result.content_length, request_id=result.request_id)
 
             if self.enable_crc and byte_range is None:
                 if (headers is None) or ('Accept-Encoding' not in headers) or (headers['Accept-Encoding'] != 'gzip'):
                     utils.check_crc('get', result.client_crc, result.server_crc, result.request_id)
 
             return result
+        
+    @staticmethod
+    async def copyfileobj(fsrc, fdst, length=0):
+        _WINDOWS = os.name == 'nt'
+        COPY_BUFSIZE = 1024 * 1024 if _WINDOWS else 64 * 1024
+        if not length:
+            length = COPY_BUFSIZE
+        fsrc_read = fsrc.read
+        fdst_write = fdst.write
+        while True:
+            buf = await fsrc_read(length)
+            if not buf:
+                break
+            fdst_write(buf)
+
+    @staticmethod
+    async def copyfileobj_and_verify(
+        fsrc, fdst, expected_len, chunk_size=16*1024, request_id=''
+    ):
+        num_read = 0
+        while 1:
+            buf = await fsrc.read(chunk_size)
+            if not buf:
+                break
+            num_read += len(buf)
+            fdst.write(buf)
+        if num_read != expected_len:
+            raise InconsistentError("IncompleteRead from source", request_id)
 
     async def get_object_with_url(self, sign_url,
                                   byte_range=None,
