@@ -86,3 +86,14 @@ All notable changes to this project will be documented here.
 ### Docs
 
 - Extract `ChangeLogs` from `README.md` to `CHANGELOG.md`.
+
+
+## [v1.1.3] - 2024-01-18
+
+### Fix
+
+- Fix a bug that prevented Bucket from closing a session by calling the close method because the close method was not implemented in the `http` module.
+
+### Test
+
+- Add `close` test case for session closing.

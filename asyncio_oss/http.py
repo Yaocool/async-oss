@@ -78,6 +78,9 @@ class Session(object):
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self._aio_session.__aexit__(exc_type, exc_val, exc_tb)
 
+    async def close(self):
+        await self._aio_session.close()
+
 
 class Request(object):
     def __init__(self, method, url,
