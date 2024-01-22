@@ -97,3 +97,14 @@ All notable changes to this project will be documented here.
 ### Test
 
 - Add `close` test case for session closing.
+
+
+## [v1.1.4] - 2024-01-22
+
+### Fix
+
+- Transform the `copyfileobj` and `copyfileobj_and_verify` methods into asynchronous methods to accommodate file reading in [PR](https://github.com/Yaocool/async-oss/pull/10). Thanks to [[lmsh7]](https://github.com/lmsh7) for the support.
+
+### Test
+
+- Add `get_object_to_file` and `get_object_with_url_to_file` test cases.
