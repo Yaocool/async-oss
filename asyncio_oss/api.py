@@ -180,15 +180,13 @@ datetime.date之间相互转换。如 ::
     - OverwriteIfExists: true|false. true表示重新获得csv meta，并覆盖原有的meta。一般情况下不需要使用
 
 """
-import time
-import shutil
-
 from . import http, exceptions
 # GetObjectResult needs to calculate crc, but the data stream is asynchronous and cannot be read directly,
 # so the GetObjectResult object in asyncio-oss is used to satisfy the crc check calculation.
 from .models import GetObjectResult as AsyncGetObjectResult
+from .utils import copyfileobj, copyfileobj_and_verify
 
-from oss2 import xml_utils, select_params, defaults, models, utils
+from oss2 import xml_utils, defaults, models, utils
 from oss2.compat import urlquote, urlparse, to_unicode, to_string
 from oss2.models import *
 from oss2.headers import *
@@ -279,8 +277,7 @@ class _Base(object):
 
     async def close(self):
         await self.session.close()
-
-
+    
 class Service(_Base):
     """用于Service操作的类，如罗列用户所有的Bucket。
 
@@ -883,9 +880,9 @@ class Bucket(_Base):
                                            process=process, params=params)
 
             if result.content_length is None:
-                shutil.copyfileobj(result, f)
+                await copyfileobj(result, f)
             else:
-                utils.copyfileobj_and_verify(result, f, result.content_length, request_id=result.request_id)
+                await copyfileobj_and_verify(result, f, result.content_length, request_id=result.request_id)
 
             if self.enable_crc and byte_range is None:
                 if (headers is None) or ('Accept-Encoding' not in headers) or (headers['Accept-Encoding'] != 'gzip'):
@@ -952,9 +949,9 @@ class Bucket(_Base):
             result = await self.get_object_with_url(sign_url, byte_range=byte_range, headers=headers,
                                                     progress_callback=progress_callback)
             if result.content_length is None:
-                shutil.copyfileobj(result, f)
+                await copyfileobj(result, f)
             else:
-                utils.copyfileobj_and_verify(result, f, result.content_length, request_id=result.request_id)
+                await copyfileobj_and_verify(result, f, result.content_length, request_id=result.request_id)
 
             return result
 
@@ -2982,3 +2979,5 @@ class _UrlMaker(object):
             return '{0}://{1}'.format(self.scheme, self.netloc)
 
         return '{0}://{1}.{2}/{3}'.format(self.scheme, bucket_name, self.netloc, key)
+
+

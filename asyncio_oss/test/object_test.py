@@ -173,3 +173,18 @@ class TestAsyncOssAPI:
         # Assert
         with open(LOCAL_TEST_BIG_FILE, 'rb') as f:
             assert await (await api.get_object(BIG_OBJECT_KEY)).read() == f.read()
+
+    @pytest.mark.asyncio
+    async def test_get_object_to_file(self, api):
+        result = await api.get_object_to_file(OBJECT_KEY, LOCAL_TEST_FILE)
+        assert result.status == 200
+        with open(LOCAL_TEST_FILE, "rb") as f:
+            assert f.read() == b"test"
+    
+    @pytest.mark.asyncio
+    async def test_get_object_with_url_to_file(self, api):
+        url = await api.sign_url('GET', OBJECT_KEY, 5 * 60)
+        result = await api.get_object_with_url_to_file(url, LOCAL_TEST_FILE)
+        assert result.status == 200
+        with open(LOCAL_TEST_FILE, "rb") as f:
+            assert f.read() == b"test"

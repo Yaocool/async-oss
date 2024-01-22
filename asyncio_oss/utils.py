@@ -7,13 +7,15 @@ oss2.utils
 工具函数模块。
 """
 import logging
+import os
 
-from .exceptions import ClientError
+from .exceptions import ClientError, InconsistentError
 
 from oss2.compat import to_bytes
 from oss2.utils import (Crc64, _IterableAdapter, _get_data_size, _has_data_size_attr, _CHUNK_SIZE,
                         _invoke_cipher_callback, _invoke_crc_callback, _invoke_progress_callback)
 
+COPY_BUFSIZE = 1024 * 1024 if os.name == 'nt' else 64 * 1024
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,31 @@ def make_crc_adapter(data, init_crc=0, discard=0):
     else:
         raise ClientError('{0} is not a file object, nor an iterator'.format(data.__class__.__name__))
 
+
+async def copyfileobj(fsrc, fdst, length=0):
+        if not length:
+            length = COPY_BUFSIZE
+        fsrc_read = fsrc.read
+        fdst_write = fdst.write
+        while True:
+            buf = await fsrc_read(length)
+            if not buf:
+                break
+            fdst_write(buf)
+
+
+async def copyfileobj_and_verify(
+        fsrc, fdst, expected_len, chunk_size=16*1024, request_id=''
+    ):
+        num_read = 0
+        while 1:
+            buf = await fsrc.read(chunk_size)
+            if not buf:
+                break
+            num_read += len(buf)
+            fdst.write(buf)
+        if num_read != expected_len:
+            raise InconsistentError("IncompleteRead from source", request_id)
 
 class _FileLikeAdapter(object):
     """通过这个适配器，可以给无法确定内容长度的 `fileobj` 加上进度监控。
