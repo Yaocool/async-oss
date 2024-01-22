@@ -8,7 +8,7 @@ long_description = (here / "README.md").read_text(encoding="utf-8")
 
 setup(
     name='asyncio-oss',
-    version='1.1.3',
+    version='1.1.4',
     description='An asynchronous python client SDK for OSS(Aliyun Object Storage Service).',
     long_description=long_description,
     long_description_content_type="text/markdown",
