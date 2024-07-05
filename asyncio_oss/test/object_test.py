@@ -126,21 +126,15 @@ class TestAsyncOssAPI:
     async def test_sign_url(self, api):
         # Act
         result = await api.sign_url('GET', OBJECT_KEY, 5 * 60)
-        assert result is not None
-        assert result != ""
+        assert result
 
-    @pytest.mark.asyncio
-    async def test_delete_object(self, api):
-        # Act
-        result = await api.delete_object(OBJECT_KEY)
+        import requests
+        signed_object_body = requests.get(result).content
+        get_obj_result = await api.get_object(OBJECT_KEY)
 
         # Assert
-        assert result.status == 204
-
-        # Assert
-        result = await api.list_objects(prefix=OBJECT_KEY_PREFIX)
-        assert result.status == 200
-        assert OBJECT_KEY not in [obj.key for obj in result.object_list]
+        assert get_obj_result.status == 200
+        assert await get_obj_result.read() == signed_object_body
 
     @pytest.mark.asyncio
     async def test_upload_big_file(self, api):
@@ -178,13 +172,34 @@ class TestAsyncOssAPI:
     async def test_get_object_to_file(self, api):
         result = await api.get_object_to_file(OBJECT_KEY, LOCAL_TEST_FILE)
         assert result.status == 200
+
+        get_obj_result = await api.get_object(OBJECT_KEY)
+        assert get_obj_result.status == 200
+
         with open(LOCAL_TEST_FILE, "rb") as f:
-            assert f.read() == b"test"
-    
+            assert f.read() == await get_obj_result.read()
+
     @pytest.mark.asyncio
     async def test_get_object_with_url_to_file(self, api):
         url = await api.sign_url('GET', OBJECT_KEY, 5 * 60)
         result = await api.get_object_with_url_to_file(url, LOCAL_TEST_FILE)
         assert result.status == 200
+
+        get_obj_result = await api.get_object(OBJECT_KEY)
+        assert get_obj_result.status == 200
+
         with open(LOCAL_TEST_FILE, "rb") as f:
-            assert f.read() == b"test"
+            assert f.read() == await get_obj_result.read()
+
+    @pytest.mark.asyncio
+    async def test_delete_object(self, api):
+        # Act
+        result = await api.delete_object(OBJECT_KEY)
+
+        # Assert
+        assert result.status == 204
+
+        # Assert
+        result = await api.list_objects(prefix=OBJECT_KEY_PREFIX)
+        assert result.status == 200
+        assert OBJECT_KEY not in [obj.key for obj in result.object_list]

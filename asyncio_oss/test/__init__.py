@@ -14,6 +14,5 @@ LOCAL_TEST_BIG_FILE = 'test_big.txt'
 OSS_AUTH = oss2.Auth(OSS_KEY, OSS_SECRET)
 
 if __name__ == '__main__':
-    for i in [OSS_KEY, OSS_SECRET, BUCKET_NAME, OBJECT_KEY, OBJECT_KEY_PREFIX, LOCAL_TEST_FILE]:
-        assert i is not None
-        assert i != ""
+    for var in [var for var in locals() if var.isupper()]:
+        assert locals()[var], f"{var} is not set"
